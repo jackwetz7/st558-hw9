@@ -124,7 +124,7 @@ bike_cv_fits_2 <- bike_wfl_2 |>
   fit_resamples(bike_10_fold)
 
 bike_cv_fits_3 <- bike_wfl_3 |>
-  fit_resamples(bike_10_fold)
+  fit_resamples(bike_10_fold, metrics = metric_set(rmse, mae))
 
 collect_metrics(bike_cv_fits_1)
 collect_metrics(bike_cv_fits_2)
@@ -143,23 +143,11 @@ best_fit |>
 
 ## LASSO Model
 ```{r}
-## creating the recipe
-LASSO_rec <-
-  recipe(count ~ ., data = sum_data) |>
-  update_role(date, new_role = "ID") |>
-  step_date(date, features = "dow") |>
-  step_mutate(day_type = factor(if_else(date_dow %in% c("Sat", "Sun"), "weekend", "weekday"))) |>
-  step_rm(date_dow) |>
-  step_normalize(all_numeric(), -all_outcomes()) |>
-  step_dummy(season, holiday, day_type)
-```
-
-```{r}
 LASSO_spec <- linear_reg(penalty = tune(), mixture = 1) |>
   set_engine("glmnet")
 
 LASSO_wkf <- workflow() |>
-  add_recipe(LASSO_rec) |>
+  add_recipe(bike_rec_3) |>
   add_model(LASSO_spec)
 ```
 
@@ -178,22 +166,10 @@ lowest_rmse <- LASSO_grid |>
 LASSO_wkf |>
   finalize_workflow(lowest_rmse) |>
   last_fit(bike_split) |>
-  collect_metrics()  # rmse is 4274.54
+  collect_metrics() 
 ```
 
 ## Regression Tree Model
-```{r}
-## creating the recipe
-tree_rec <-
-  recipe(count ~ ., data = sum_data) |>
-  update_role(date, new_role = "ID") |>
-  step_date(date, features = "dow") |>
-  step_mutate(day_type = factor(if_else(date_dow %in% c("Sat", "Sun"), "weekend", "weekday"))) |>
-  step_rm(date_dow) |>
-  step_normalize(all_numeric(), -all_outcomes()) |>
-  step_dummy(season, holiday, day_type)
-```
-
 ```{r}
 tree_mod <- decision_tree(tree_depth = tune(),
                           min_n = 20,
@@ -202,7 +178,7 @@ tree_mod <- decision_tree(tree_depth = tune(),
   set_mode("regression")
 
 tree_wkf <- workflow() |>
-  add_recipe(tree_rec) |>
+  add_recipe(bike_rec_3) |>
   add_model(tree_mod)
 ```
 
@@ -242,7 +218,7 @@ bag_spec <- bag_tree(tree_depth = tune(),
   set_mode("regression")
 
 bag_wkf <- workflow() |>
-  add_recipe(tree_rec) |>
+  add_recipe(bike_rec_3) |>
   add_model(bag_spec)
 ```
 
@@ -256,5 +232,74 @@ bag_grid <- grid_regular(cost_complexity(),
 bag_fits <- bag_wkf |> 
   tune_grid(resamples = bike_10_fold,
             grid = bag_grid)
+```
+
+```{r}
+bag_best_params <- bag_fits |>
+  select_best(metric = "rmse")
+
+bag_final_wkf <- bag_wkf |>
+  finalize_workflow(bag_best_params)
+
+bag_final_fit <- bag_final_wkf |>
+  last_fit(bike_split)
+
+bag_final_fit |>
+  collect_metrics()
+```
+
+## Random Forest Model
+```{r}
+library(ranger)
+rf_spec <- rand_forest(mtry = tune()) |>
+  set_engine("ranger") |>
+  set_mode("regression")
+
+rf_wkf <- workflow() |>
+  add_recipe(bike_rec_3) |>
+  add_model(rf_spec)
+```
+
+```{r}
+rf_fits <- rf_wkf |> 
+  tune_grid(resamples = bike_10_fold,
+            grid = 7)
+```
+```{r}
+rf_best_params <- rf_fits |>
+  select_best(metric = "rmse")
+
+rf_final_wkf <- rf_wkf |>
+  finalize_workflow(rf_best_params)
+
+rf_final_fit <- rf_final_wkf |>
+  last_fit(bike_split)
+
+rf_final_fit |>
+  collect_metrics()
+```
+
+## Comparing final models
+```{r}
+bike_wfl_3 |>
+  last_fit(bike_split, metrics = metric_set(rmse, mae)) |>
+  collect_metrics()
+
+LASSO_wkf |>
+  finalize_workflow(lowest_rmse) |>
+  last_fit(bike_split, metrics = metric_set(rmse, mae)) |>
+  collect_metrics()
+
+tree_final_wkf |>
+  last_fit(bike_split, metrics = metric_set(rmse, mae)) |>
+  collect_metrics()
+
+bag_final_wkf |>
+  last_fit(bike_split, metrics = metric_set(rmse, mae)) |>
+  collect_metrics()
+
+rf_final_wkf |>
+  last_fit(bike_split, metrics = metric_set(rmse, mae)) |>
+  collect_metrics()
 ```
 

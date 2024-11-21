@@ -147,7 +147,7 @@ LASSO_spec <- linear_reg(penalty = tune(), mixture = 1) |>
   set_engine("glmnet")
 
 LASSO_wkf <- workflow() |>
-  add_recipe(bike_rec_3) |>
+  add_recipe(bike_rec_1) |>
   add_model(LASSO_spec)
 ```
 
@@ -178,7 +178,7 @@ tree_mod <- decision_tree(tree_depth = tune(),
   set_mode("regression")
 
 tree_wkf <- workflow() |>
-  add_recipe(bike_rec_3) |>
+  add_recipe(bike_rec_1) |>
   add_model(tree_mod)
 ```
 
@@ -218,7 +218,7 @@ bag_spec <- bag_tree(tree_depth = tune(),
   set_mode("regression")
 
 bag_wkf <- workflow() |>
-  add_recipe(bike_rec_3) |>
+  add_recipe(bike_rec_1) |>
   add_model(bag_spec)
 ```
 
@@ -252,11 +252,11 @@ bag_final_fit |>
 ```{r}
 library(ranger)
 rf_spec <- rand_forest(mtry = tune()) |>
-  set_engine("ranger") |>
+  set_engine("ranger", importance = "impurity") |>
   set_mode("regression")
 
 rf_wkf <- workflow() |>
-  add_recipe(bike_rec_3) |>
+  add_recipe(bike_rec_1) |>
   add_model(rf_spec)
 ```
 
@@ -283,7 +283,7 @@ rf_final_fit |>
 ```{r}
 bike_wfl_3 |>
   last_fit(bike_split, metrics = metric_set(rmse, mae)) |>
-  collect_metrics()
+  collect_metrics()  ## best model on both rmse and mae
 
 LASSO_wkf |>
   finalize_workflow(lowest_rmse) |>
@@ -301,5 +301,50 @@ bag_final_wkf |>
 rf_final_wkf |>
   last_fit(bike_split, metrics = metric_set(rmse, mae)) |>
   collect_metrics()
+```
+```{r}
+## coefficient tables
+best_fit |>
+  extract_fit_parsnip() |>
+  tidy()
+
+LASSO_wkf |>
+  finalize_workflow(lowest_rmse) |>
+  last_fit(bike_split, metrics = metric_set(rmse, mae)) |>
+  extract_fit_parsnip() |>
+  tidy()
+```
+
+```{r}
+## plot final fit
+library(rpart.plot)
+tree_final_model <- extract_workflow(tree_final_fit) 
+tree_final_model |>
+  extract_fit_engine() |>
+  rpart.plot::rpart.plot(roundint = FALSE)
+```
+
+```{r}
+## variable importance plots
+bag_final_model <- extract_fit_engine(bag_final_fit)
+
+bag_final_model$imp |>
+  mutate(term = factor(term, levels = term)) |>
+  ggplot(aes(x = term, y = value)) +
+  geom_bar(stat ="identity") +
+  coord_flip()
+
+library(vip)
+
+rf_final_model <- extract_fit_engine(rf_final_fit)
+
+vip(rf_final_model, geom = "col")
+```
+
+```{r}
+## fit best overall model to entire data set
+final_best_fit <- bike_wfl_3 |>
+  fit(sum_data)
+tidy(final_best_fit)
 ```
 
